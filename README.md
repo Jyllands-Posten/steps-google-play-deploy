@@ -2,6 +2,8 @@
 
 Deploy your Android .apk file to Google Play
 
+This custom fork supports releasing multiple apk files with different package names by using output from a gradle builder task which produces multiple apk files.
+
 ## How to use this Step
 
 Can be run directly with the [bitrise CLI](https://github.com/bitrise-io/bitrise),
