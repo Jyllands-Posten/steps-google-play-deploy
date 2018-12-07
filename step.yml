@@ -21,9 +21,6 @@ description: |-
      - Manage Alpha & Beta APKs
      - Manage Alpha & Beta users
 
-  5. OPTIONAL - Add translations for your Store Listing.
-    To allow the step to assign your 'whatsnew' files to the uploaded apk version.
-    See: https://support.google.com/googleplay/android-developer/answer/3125566?hl=en (Add translations for your Store Listing)
 website: https://github.com/bitrise-io/steps-google-play-deploy
 source_code_url: https://github.com/bitrise-io/steps-google-play-deploy
 support_url: https://github.com/bitrise-io/steps-google-play-deploy/issues
@@ -61,11 +58,11 @@ inputs:
         For local JSON key file provide file path url. (ex: `file://PATH/TO/key.json`).
       is_required: true
       is_sensitive: true
-  - package_name:
+  - build_tools_path:
     opts:
-      title: Package name
+      title: Path for build tools
       description: |-
-        Package name of the APK or App bundle to deploy.
+        This step neeeds aapt which is located in android build tools
       is_required: true
   - apk_path: "$BITRISE_APK_PATH"
     opts:
@@ -81,20 +78,7 @@ inputs:
         - `/path/to/my/app1.apk|/path/to/my/app2.apk|/path/to/my/app3.apk`
         - `/path/to/my/bundle.aab`
       is_required: true
-  - expansionfile_path: ""
-    opts:
-      title: Expansion file Path
-      description: |-
-        Path to the expansion file.
-
-        Leave empty or provide exactly the same number of paths as in apk_path, separated by `|` character and start each path with the expansion file's type
-        separated by a `:`. (main, patch)
-
-        Format examples:
-
-        - `main:/path/to/my/app.obb`
-        - `patch:/path/to/my/app1.obb|main:/path/to/my/app2.obb|main:/path/to/my/app3.obb`
-  - track: alpha
+  - track: internal
     opts:
       title: Track
       summary: The track in which you want to assign the uploaded APK(s).
@@ -107,43 +91,6 @@ inputs:
         
         For example: `pre-release`, or any of your closed track you added in Google Play Developer Console.
       is_required: true
-  - user_fraction: "0.5"
-    opts:
-      title: User Fraction
-      description: |-
-        __Only available if `track` is `rollout`.__
-
-        Portion of the users who should get the staged rollout version of the APK.
-      value_options:
-      - "0.05"
-      - "0.1"
-      - "0.2"
-      - "0.5"
-      is_required: true
-  - whatsnews_dir:
-    opts:
-      title: "Directory of localized whatsnew files"
-      description: |-
-        Use this input to specify localized 'whatsnew' files directory.
-
-        This directory should contain 'whatsnew' files postfixed with the locale.
-
-        whatsnew file name pattern: `whatsnew-LOCALE`
-
-        Example:
-        
-        ```
-        + - [PATH/TO/WHATSNEWS]
-            |
-            + - whatsnew-en-US
-            |
-            + - whatsnew-de-DE
-        ```
-
-        Format examples:
-
-        - "./"         # whatsnew files are in the repo root directory
-        - "./whatsnew" # whatsnew files are in the whatsnew directory
   - mapping_file: "$BITRISE_MAPPING_PATH"
     opts:
       title: Location of your mapping.txt file

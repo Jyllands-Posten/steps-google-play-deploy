@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -41,29 +40,27 @@ const (
 // ConfigsModel ...
 type ConfigsModel struct {
 	JSONKeyPath             string
-	PackageName             string
 	ApkPath                 string
-	ExpansionfilePath       string
 	Track                   string
-	UserFraction            string
-	WhatsnewsDir            string
+	BuildToolsPath          string
 	MappingFile             string
 	UntrackBlockingVersions string
 }
 
 func packageNameForApk(apkPath string) string {
+	configs := createConfigsModelFromEnvs()
 
 	fmt.Printf("Getting package name for %s\n", apkPath)
 
-	apptPath := "/opt/android-sdk-linux/build-tools/28.0.3/aapt"
+	aaptPath := fmt.Sprintf("%s/aapt", configs.BuildToolsPath)
 
-	_, err := exec.LookPath(apptPath)
+	_, err := exec.LookPath(aaptPath)
 
 	if err != nil {
-		log.Errorf("Unable to find aapt")
+		log.Errorf("Unable to find aapt at path %s", aaptPath)
 	}
 
-	cmd := exec.Command(apptPath, "dump", "badging", apkPath)
+	cmd := exec.Command(aaptPath, "dump", "badging", apkPath)
 	stdoutStderr, err := cmd.CombinedOutput()
 
 	s := string(stdoutStderr)
@@ -79,12 +76,9 @@ func packageNameForApk(apkPath string) string {
 func createConfigsModelFromEnvs() ConfigsModel {
 	return ConfigsModel{
 		JSONKeyPath:             os.Getenv("service_account_json_key_path"),
-		PackageName:             os.Getenv("package_name"),
+		BuildToolsPath:          os.Getenv("build_tools_path"),
 		ApkPath:                 os.Getenv("apk_path"),
-		ExpansionfilePath:       os.Getenv("expansionfile_path"),
 		Track:                   os.Getenv("track"),
-		UserFraction:            os.Getenv("user_fraction"),
-		WhatsnewsDir:            os.Getenv("whatsnews_dir"),
 		MappingFile:             os.Getenv("mapping_file"),
 		UntrackBlockingVersions: os.Getenv("untrack_blocking_versions"),
 	}
@@ -140,12 +134,9 @@ func secureInput(str string) string {
 func (configs ConfigsModel) print() {
 	log.Infof("Configs:")
 	log.Printf("- JSONKeyPath: %s", secureInput(configs.JSONKeyPath))
-	log.Printf("- PackageName: %s", configs.PackageName)
+	log.Printf("- BuildToolsPath: %s", configs.BuildToolsPath)
 	log.Printf("- ApkPath: %s", configs.ApkPath)
-	log.Printf("- ExpansionfilePath: %s", configs.ExpansionfilePath)
 	log.Printf("- Track: %s", configs.Track)
-	log.Printf("- UserFraction: %s", configs.UserFraction)
-	log.Printf("- WhatsnewsDir: %s", configs.WhatsnewsDir)
 	log.Printf("- MappingFile: %s", configs.MappingFile)
 	log.Printf("- UntrackBlockingVersions: %s", configs.UntrackBlockingVersions)
 }
@@ -164,13 +155,10 @@ func (configs ConfigsModel) validate() error {
 		}
 	}
 
-	if err := input.ValidateIfNotEmpty(configs.PackageName); err != nil {
-		return errors.New("issue with input PackageName: " + err.Error())
-	}
-
 	if err := input.ValidateIfNotEmpty(configs.ApkPath); err != nil {
 		return errors.New("issue with input ApkPath: " + err.Error())
 	}
+
 	apkPaths := strings.Split(configs.ApkPath, "|")
 	for _, apkPath := range apkPaths {
 		if exist, err := pathutil.IsPathExists(apkPath); err != nil {
@@ -182,19 +170,6 @@ func (configs ConfigsModel) validate() error {
 
 	if err := input.ValidateIfNotEmpty(configs.Track); err != nil {
 		return errors.New("Issue with input Track: " + err.Error())
-	}
-	if configs.Track == rolloutTrackName {
-		if configs.UserFraction == "" {
-			return errors.New("No UserFraction parameter specified")
-		}
-	}
-
-	if configs.WhatsnewsDir != "" {
-		if exist, err := pathutil.IsPathExists(configs.WhatsnewsDir); err != nil {
-			return fmt.Errorf("Failed to check if WhatsnewsDir exist at: %s, error: %s", configs.WhatsnewsDir, err)
-		} else if !exist {
-			return errors.New("WhatsnewsDir not exist at: " + configs.WhatsnewsDir)
-		}
 	}
 
 	if configs.MappingFile != "" {
@@ -379,15 +354,7 @@ func main() {
 	versionCodes := []int64{}
 	apkPaths := strings.Split(configs.ApkPath, "|")
 
-	// "main:/file/path/1.obb|patch:/file/path/2.obb"
-	expansionfileUpload := strings.TrimSpace(configs.ExpansionfilePath) != ""
-	expansionfilePaths := strings.Split(configs.ExpansionfilePath, "|")
-
 	// ------ //
-
-	if expansionfileUpload && (len(apkPaths) != len(expansionfilePaths)) {
-		failf("Mismatching number of APKs(%d) and Expansionfiles(%d)", len(apkPaths), len(expansionfilePaths))
-	}
 
 	for i, apkPath := range apkPaths {
 		versionCode := int64(0)
@@ -459,34 +426,6 @@ func main() {
 			log.Printf(" uploaded apk version: %d", apk.VersionCode)
 			versionCodes = append(versionCodes, apk.VersionCode)
 			versionCode = apk.VersionCode
-
-			if expansionfileUpload {
-				// "main:/file/path/1.obb"
-				cleanExpfilePath := strings.TrimSpace(expansionfilePaths[i])
-				if !strings.HasPrefix(cleanExpfilePath, "main:") && !strings.HasPrefix(cleanExpfilePath, "patch:") {
-					failf("Invalid expansion file config: %s", expansionfilePaths[i])
-				}
-
-				// [0]: "main" [1]:"/file/path/1.obb"
-				expansionfilePathSplit := strings.Split(cleanExpfilePath, ":")
-
-				// "main"
-				expfileType := strings.TrimSpace(expansionfilePathSplit[0])
-
-				// "/file/path/1.obb"
-				expfilePth := strings.TrimSpace(strings.Join(expansionfilePathSplit[1:], ""))
-
-				expansionFile, err := os.Open(expfilePth)
-				if err != nil {
-					failf("Failed to read expansion file (%s), error: %s", expansionFile, err)
-				}
-				editsExpansionfilesService := androidpublisher.NewEditsExpansionfilesService(service)
-				editsExpansionfilesCall := editsExpansionfilesService.Upload(packageName, appEdit.Id, versionCode, expfileType)
-				editsExpansionfilesCall.Media(expansionFile, googleapi.ContentType("application/vnd.android.package-archive"))
-				if _, err := editsExpansionfilesCall.Do(); err != nil {
-					failf("Failed to upload expansion file, error: %s", err)
-				}
-			}
 		}
 
 		// Upload mapping.txt
@@ -518,14 +457,6 @@ func main() {
 		newTrack := androidpublisher.Track{
 			Track:        configs.Track,
 			VersionCodes: versionCodes,
-		}
-
-		if configs.Track == rolloutTrackName {
-			userFraction, err := strconv.ParseFloat(configs.UserFraction, 64)
-			if err != nil {
-				failf("Failed to parse user fraction, error: %s", err)
-			}
-			newTrack.UserFraction = userFraction
 		}
 
 		editsTracksUpdateCall := editsTracksService.Update(packageName, appEdit.Id, configs.Track, &newTrack)
@@ -634,41 +565,6 @@ func main() {
 				log.Donef("No blocking apk version found")
 			}
 		}
-		// ---
-
-		//
-		// Update listing
-		if configs.WhatsnewsDir != "" {
-			fmt.Println()
-			log.Infof("Update listing")
-
-			recentChangesMap, err := readLocalisedRecentChanges(configs.WhatsnewsDir)
-			if err != nil {
-				failf("Failed to read whatsnews, error: %s", err)
-			}
-
-			editsApklistingsService := androidpublisher.NewEditsApklistingsService(service)
-
-			for _, versionCode := range versionCodes {
-				log.Printf(" updating recent changes for version: %d", versionCode)
-
-				for language, recentChanges := range recentChangesMap {
-					newApkListing := androidpublisher.ApkListing{
-						Language:      language,
-						RecentChanges: recentChanges,
-					}
-
-					editsApkListingsCall := editsApklistingsService.Update(packageName, appEdit.Id, versionCode, language, &newApkListing)
-					apkListing, err := editsApkListingsCall.Do()
-					if err != nil {
-						failf("Failed to update listing, error: %s", err)
-					}
-
-					log.Printf(" - language: %s", apkListing.Language)
-				}
-			}
-		}
-		// ---
 
 		//
 		// Validate edit
